@@ -40,16 +40,16 @@ func IsBlockValid(newBlock, prevBlock Block) bool {
 	if calculateHash(newBlock) != newBlock.Hash {
 		return false
 	}
-	return true // Fixed: should return true if all validations pass
+	return true 
 }
 
 func IsChainValid(chain []Block) bool {
 	for i := 1; i < len(chain); i++ {
-		if !IsBlockValid(chain[i], chain[i-1]) { // Fixed: negate the condition
+		if !IsBlockValid(chain[i], chain[i-1]) { 
 			return false
 		}
 	}
-	return true // Fixed: return true if all blocks are valid
+	return true 
 }
 
 func main() {
