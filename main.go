@@ -1,32 +1,48 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 )
 
 type Block struct {
 	Index     int
-	Timestamp string
+	Timestamp int64
 	Data      string
 	PrevHash  string
 	Hash      string
+	Nonce     int
 }
 
 func calculateHash(block Block) string {
-	record := fmt.Sprintf("%d%s%s%s", block.Index, block.Timestamp, block.Data, block.PrevHash)
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(record)))
+	var buf bytes.Buffer
+
+	binary.Write(&buf, binary.LittleEndian, int64(block.Index))
+	binary.Write(&buf, binary.LittleEndian, int64(block.Timestamp))
+	binary.Write(&buf, binary.LittleEndian, int64(block.Nonce))
+	binary.Write(&buf, binary.LittleEndian, int32(len(block.Data)))
+	buf.WriteString(block.Data)
+	binary.Write(&buf, binary.LittleEndian, int32(len(block.PrevHash)))
+	buf.WriteString(block.PrevHash)
+
+	hash := sha256.Sum256(buf.Bytes())
+	return fmt.Sprintf("%x", hash)
 }
 
-func generateBlock(prevBlock Block, data string) Block {
+func generateBlock(prevBlock Block, data string, difficulty int) Block {
 	newBlock := Block{
 		Index:     prevBlock.Index + 1,
-		Timestamp: time.Now().String(),
+		Timestamp: time.Now().Unix(),
 		Data:      data,
 		PrevHash:  prevBlock.Hash,
 	}
-	newBlock.Hash = calculateHash(newBlock)
+	hash, nonce := ProofOfWork(newBlock, difficulty)
+	newBlock.Hash = hash
+	newBlock.Nonce = nonce
 	return newBlock
 }
 
@@ -52,17 +68,41 @@ func IsChainValid(chain []Block) bool {
 	return true 
 }
 
+func ProofOfWork(block Block, difficulty int) (string, int) {
+	prefix := strings.Repeat("0", difficulty)
+	nonce := 0
+	var hash string
+
+	for {
+		block.Nonce = nonce
+		hash = calculateHash(block)
+		if strings.HasPrefix(hash, prefix) {
+			break
+		}
+		nonce++
+	}
+	return hash, nonce
+}
+
 func main() {
 	// Create genesis block
-	genesisBlock := Block{0, time.Now().String(), "Genesis", "", ""}
+	genesisBlock := Block{
+		Index:     0,
+		Timestamp: time.Now().Unix(),
+		Data:      "Genesis",
+		Nonce:     0,
+	}
 	genesisBlock.Hash = calculateHash(genesisBlock)
 
 	// Initialize blockchain
 	blockchain := []Block{genesisBlock}
 
+	// Difficulty level for PoW
+	difficulty := 4
+
 	// Add more blocks
-	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Second Block"))
-	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Third Block"))
+	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Second Block", difficulty))
+	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Third Block", difficulty))
 
 	// Display blockchain
 	fmt.Println("Blockchain:")
