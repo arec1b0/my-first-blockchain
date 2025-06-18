@@ -1,55 +1,80 @@
-# 🧱 Simple Blockchain in Go
+# 🧱 Go Blockchain with Proof-of-Work
 
-This is a basic blockchain implementation written in Go, created for educational purposes. It includes not only block creation and hashing, but also full-chain validation logic to ensure integrity.
+A simple blockchain implementation written in Go. This project introduces basic blockchain principles such as immutability, hashing, and proof-of-work (PoW), using efficient binary encoding and timestamping.
 
-## 📌 Overview
 
-Each block contains:
-- `Index` – the block number in the chain
-- `Timestamp` – the time of block creation
-- `Data` – custom string payload
-- `PrevHash` – hash of the previous block
-- `Hash` – the current block's hash (SHA-256)
+## 🔧 Features
 
-## ⚙️ Features
+- SHA-256 hashing using `bytes.Buffer` and `binary.Write`
+- Unix timestamps for consistent, secure time representation
+- 'Nonce' field with real-time proof-of-work mining
+- Block and chain validation ('IsBlockValid', 'IsChainValid')
+- Adjustable mining difficulty
+- Simple and readable Go code structure
 
-- ✅ Genesis block creation
-- 🔗 Hash chaining between blocks
-- 🔒 SHA-256 hash calculation
-- ✅ Block and chain validation functions
-- 📜 Blockchain printing with shortened hashes
-
-## 📂 Structure
+## 📦 Block Structure
 
 ```go
 type Block struct {
     Index     int
-    Timestamp string
+    Timestamp int64
     Data      string
     PrevHash  string
     Hash      string
+    Nonce     int
 }
 
-How to run:
-- Clone the repository
-"git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
-cd YOUR_REPOSITORY"
+## ⛏️ Proof-of-Work
+- Each block requires a valid hash with a configurable number of leading zeros (difficulty).
+- The ProofOfWork function increments the Nonce until a valid hash is found.
 
-Run the code:
+```go
+  func ProofOfWork(block Block, difficulty int) (string, int)
+
+- This simulates real-world mining logic like Bitcoin's (simplified).
+
+
+## 🧪 Chain Validation
+
+The blockchain is validated by checking:
+- Index increment
+- Hash linkage (PrevHash)
+- Hash correctness
+- Optional: PoW consistency
+
+func IsBlockValid(newBlock, prevBlock Block) bool
+func IsChainValid(chain []Block) bool
+
+
+🚀 How to run:
+1. Make sure you have Go installed
+
+2. Clone the repository
+ git clone https://github.com/ITDan16/my-first-blockchain.git
+ cd my-first-blockchain
+
+
+3. Run the rpoject:
 - "go run main.go"
 
+
 Expexted output:
--"Blockchain:
-Index: 0, Data: Genesis, Hash: 9c53fa1d...
-Index: 1, Data: Second Block, Hash: 78b12cc0...
-Index: 2, Data: Third Block, Hash: c7a8e3e9...
+Blockchain:
+Index: 0, Data: Genesis, Hash: 0000e91e...
+Index: 1, Data: Second Block, Hash: 0000c9a4...
+Index: 2, Data: Third Block, Hash: 00002bb1...
 
-Is blockchain valid? true"
+Is blockchain valid? true
 
 
-Validation logic:
-- "IsBlockValid(newBlock, prevBlock)" checks if a single block is valid in relation to the previous block.
-- "IsChainValid(chain)" loops through the entire chain to verify consistency and integrity.
+🧠 Learning Goals
+
+This project is perfect for those who want to learn:
+
+- How blockchain works under the hood
+- How hashing and mining are implemented
+- Basic Go syntax and struct usage
+- Chain validation logic
 
 Author:
 Created by Danylo Mozhaiev.
