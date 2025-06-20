@@ -46,16 +46,17 @@ The blockchain is validated by checking:
 - Hash correctness
 - Optional: PoW consistency
 
+```
 func IsBlockValid(newBlock, prevBlock Block) bool
 func IsChainValid(chain []Block) bool
-
+```
 
 🚀 How to run:
 1. Make sure you have Go installed
 
 2. Clone the repository
- git clone https://github.com/ITDan16/my-first-blockchain.git
- cd my-first-blockchain
+ (git clone https://github.com/ITDan16/my-first-blockchain.git
+ cd my-first-blockchain)
 
 
 3. Run the rpoject:
