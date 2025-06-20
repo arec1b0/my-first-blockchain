@@ -16,37 +16,66 @@ type Block struct {
 	PrevHash  string
 	Hash      string
 	Nonce     int
+	// explicitlyInitialized helps distinguish between zero-value and explicitly initialized blocks
+	explicitlyInitialized bool
 }
 
-func calculateHash(block Block) string {
+// serializeBlock converts a Block to a deterministic byte array,
+// with special handling for zero values vs. explicitly set empty fields
+func serializeBlock(block *Block) []byte {
 	var buf bytes.Buffer
 
+	// Add a version byte for future compatibility
+	buf.WriteByte(0x01)
+
+	// Write the explicitlyInitialized flag first
+	if block.explicitlyInitialized {
+		buf.WriteByte(0xFF)
+	} else {
+		buf.WriteByte(0x00)
+	}
+
+	// Write field values with type information
 	binary.Write(&buf, binary.LittleEndian, int64(block.Index))
 	binary.Write(&buf, binary.LittleEndian, int64(block.Timestamp))
 	binary.Write(&buf, binary.LittleEndian, int64(block.Nonce))
+
+	// For strings, write length prefix and data
 	binary.Write(&buf, binary.LittleEndian, int32(len(block.Data)))
 	buf.WriteString(block.Data)
+
 	binary.Write(&buf, binary.LittleEndian, int32(len(block.PrevHash)))
 	buf.WriteString(block.PrevHash)
 
-	hash := sha256.Sum256(buf.Bytes())
+	return buf.Bytes()
+}
+
+func calculateHash(block *Block) string {
+	// Get deterministic serialization
+	bytes := serializeBlock(block)
+
+	// Hash the serialized data
+	hash := sha256.Sum256(bytes)
 	return fmt.Sprintf("%x", hash)
 }
 
-func generateBlock(prevBlock Block, data string, difficulty int) Block {
-	newBlock := Block{
+// Генерация нового блока с Proof-of-Work
+func generateBlock(prevBlock *Block, data string, difficulty int) *Block {
+	newBlock := &Block{
 		Index:     prevBlock.Index + 1,
 		Timestamp: time.Now().Unix(),
 		Data:      data,
 		PrevHash:  prevBlock.Hash,
 	}
-	hash, nonce := ProofOfWork(newBlock, difficulty)
+
+	hash, nonce := proofOfWork(newBlock, difficulty)
 	newBlock.Hash = hash
 	newBlock.Nonce = nonce
 	return newBlock
 }
 
-func IsBlockValid(newBlock, prevBlock Block) bool {
+// Валидация одного блока
+func isBlockValid(newBlock, prevBlock *Block) bool {
 	if newBlock.Index != prevBlock.Index+1 {
 		return false
 	}
@@ -56,19 +85,21 @@ func IsBlockValid(newBlock, prevBlock Block) bool {
 	if calculateHash(newBlock) != newBlock.Hash {
 		return false
 	}
-	return true 
+	return true
 }
 
-func IsChainValid(chain []Block) bool {
-	for i := 1; i < len(chain); i++ {
-		if !IsBlockValid(chain[i], chain[i-1]) { 
+// Валидация всей цепочки
+func isChainValid(chain *[]Block) bool {
+	for i := 1; i < len(*chain); i++ {
+		if !isBlockValid(&(*chain)[i], &(*chain)[i-1]) {
 			return false
 		}
 	}
-	return true 
+	return true
 }
 
-func ProofOfWork(block Block, difficulty int) (string, int) {
+// Proof-of-Work
+func proofOfWork(block *Block, difficulty int) (string, int) {
 	prefix := strings.Repeat("0", difficulty)
 	nonce := 0
 	var hash string
@@ -85,31 +116,29 @@ func ProofOfWork(block Block, difficulty int) (string, int) {
 }
 
 func main() {
-	// Create genesis block
-	genesisBlock := Block{
+	// Создание genesis-блока
+	genesisBlock := &Block{
 		Index:     0,
 		Timestamp: time.Now().Unix(),
 		Data:      "Genesis",
-		Nonce:     0,
+		PrevHash:  "",
 	}
 	genesisBlock.Hash = calculateHash(genesisBlock)
 
-	// Initialize blockchain
-	blockchain := []Block{genesisBlock}
-
-	// Difficulty level for PoW
+	// Инициализация цепочки
+	blockchain := []Block{*genesisBlock}
 	difficulty := 4
 
-	// Add more blocks
-	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Second Block", difficulty))
-	blockchain = append(blockchain, generateBlock(blockchain[len(blockchain)-1], "Third Block", difficulty))
+	// Добавление блоков
+	blockchain = append(blockchain, *generateBlock(&blockchain[len(blockchain)-1], "Second Block", difficulty))
+	blockchain = append(blockchain, *generateBlock(&blockchain[len(blockchain)-1], "Third Block", difficulty))
 
-	// Display blockchain
+	// Вывод блоков
 	fmt.Println("Blockchain:")
 	for _, block := range blockchain {
 		fmt.Printf("Index: %d, Data: %s, Hash: %s\n", block.Index, block.Data, block.Hash[:10]+"...")
 	}
 
-	// Validate blockchain
-	fmt.Printf("\nIs blockchain valid? %t\n", IsChainValid(blockchain))
+	// Валидация цепочки
+	fmt.Printf("\nIs blockchain valid? %t\n", isChainValid(&blockchain))
 }
