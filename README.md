@@ -23,13 +23,17 @@ type Block struct {
     Hash      string
     Nonce     int
 }
+```
 
 ## ⛏️ Proof-of-Work
 - Each block requires a valid hash with a configurable number of leading zeros (difficulty).
 - The ProofOfWork function increments the Nonce until a valid hash is found.
 
-```go
-  func ProofOfWork(block Block, difficulty int) (string, int)
+```
+func ProofOfWork(block Block, difficulty int) (string, int)
+```
+
+
 
 - This simulates real-world mining logic like Bitcoin's (simplified).
 
@@ -78,5 +82,5 @@ This project is perfect for those who want to learn:
 
 Author:
 Created by Danylo Mozhaiev.
-Inspired by Arec1b0, Go learning projects and blockchain principles.
+Inspired by [Arec1b0](https://gist.github.com/arec1b0), Go learning projects and blockchain principles.
 
