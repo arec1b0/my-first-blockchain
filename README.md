@@ -15,27 +15,27 @@ A lightweight and educational blockchain written in Go.
 
 ## 📦 Getting Started
 
-###Run the project:
+### Run the project:
 
 ```bash
 go run main.go
 ```
 
-###Run the tests:
+### Run the tests:
 
 ```bash
 go test
 ```
 
-###Benchmark perfomance:
+### Benchmark perfomance:
 
 ```bash
 go test -bench=.
 ```
 
-##🧬 Block Structure
+## 🧬 Block Structure
 
-###Each block contains:
+### Each block contains:
 	•	Index, Timestamp
 	•	Data as []byte
 	•	PrevHash and Hash as []byte
@@ -43,7 +43,7 @@ go test -bench=.
 
 The chain uses safe serialization via serializeBlock().
 
-##🔁 Chain Validation
+## 🔁 Chain Validation
 
 Implemented via:
 ```bash
@@ -51,7 +51,7 @@ ok := isChainValidCached(chain)
 ```
 Cached validation reduces hash recomputation.
 
-##🧪 Tests & Collision Checks
+## 🧪 Tests & Collision Checks
 
 File main_test.go includes edge case tests:
 	•	Length prefix mismatches
@@ -60,7 +60,7 @@ File main_test.go includes edge case tests:
 	•	Prefix injection
 	•	Field swapping
 
- ##📈 Benchmarks
+ ## 📈 Benchmarks
 
 Validated on chains of size: 100, 1,000, 5,000, 10,000.
 
@@ -70,11 +70,11 @@ Run:
 go test -bench=.
 ```
 
-##👤 Author
+## 👤 Author
 Created by Danylo Mozhaiev.
 Inspired by [Arec1b0](https://gist.github.com/arec1b0), 
 Go learning projects and blockchain principles.
 
-##📜 License
+## 📜 License
 
 MIT — free to use, fork, and improve.
