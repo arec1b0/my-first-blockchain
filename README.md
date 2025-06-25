@@ -1,82 +1,49 @@
-# 🧱 Go Blockchain with Proof-of-Work
-
-A simple blockchain implementation written in Go. This project introduces basic blockchain principles such as immutability, hashing, and proof-of-work (PoW), using efficient binary encoding and timestamping.
-
-
-## 🔧 Features
-
-- SHA-256 hashing using `bytes.Buffer` and `binary.Write`
-- Unix timestamps for consistent, secure time representation
-- 'Nonce' field with real-time proof-of-work mining
-- Block and chain validation ('IsBlockValid', 'IsChainValid')
-- Adjustable mining difficulty
-- Simple and readable Go code structure
-
-## 📦 Block Structure
-
-```go
-type Block struct {
-    Index     int
-    Timestamp int64
-    Data      string
-    PrevHash  string
-    Hash      string
-    Nonce     int
-}
-
-## ⛏️ Proof-of-Work
-- Each block requires a valid hash with a configurable number of leading zeros (difficulty).
-- The ProofOfWork function increments the Nonce until a valid hash is found.
-
-```go
-  func ProofOfWork(block Block, difficulty int) (string, int)
-
-- This simulates real-world mining logic like Bitcoin's (simplified).
-
-
-## 🧪 Chain Validation
-
-The blockchain is validated by checking:
-- Index increment
-- Hash linkage (PrevHash)
-- Hash correctness
-- Optional: PoW consistency
-
-func IsBlockValid(newBlock, prevBlock Block) bool
-func IsChainValid(chain []Block) bool
-
-
-🚀 How to run:
-1. Make sure you have Go installed
-
-2. Clone the repository
- git clone https://github.com/ITDan16/my-first-blockchain.git
- cd my-first-blockchain
-
-
-3. Run the rpoject:
-- "go run main.go"
-
-
-Expexted output:
-Blockchain:
-Index: 0, Data: Genesis, Hash: 0000e91e...
-Index: 1, Data: Second Block, Hash: 0000c9a4...
-Index: 2, Data: Third Block, Hash: 00002bb1...
-
-Is blockchain valid? true
-
-
-🧠 Learning Goals
-
-This project is perfect for those who want to learn:
-
-- How blockchain works under the hood
-- How hashing and mining are implemented
-- Basic Go syntax and struct usage
-- Chain validation logic
-
-Author:
+# Simple Blockchain in Go
+A lightweight and educational blockchain written in Go, featuring:
+- Block structure with binary-safe serialization
+- Proof-of-Work mining mechanism
+- SHA-256 hashing using `[]byte` for collision safety
+- Advanced unit tests for hash uniqueness
+- Chain validation with caching (O(n) performance)
+- Benchmark tests for large chains
+---
+## Getting Started
+Clone the repo and run:
+go run main.go
+To run tests:
+go test
+To benchmark chain validation:
+go test -bench=.
+---
+## Structure
+### Block
+Each block stores:
+- `Index`, `Timestamp`
+- `Data` as `[]byte`
+- `PrevHash` and `Hash` as `[]byte`
+- `Nonce` (for Proof-of-Work)
+### Proof-of-Work
+format).
+Implemented via `proofOfWork()` with difficulty level (`n` leading zeroes in hex
+### Chain Validation
+- `isChainValidCached()` validates the blockchain using cached hashes to avoid redundant
+computation.
+---
+## Test Coverage
+- `main_test.go` includes adversarial hash collision cases.
+- Verifies that different field combinations do not produce same hashes.
+---
+## Benchmarks
+Tested on chains with:
+- 100 blocks
+- 1,000 blocks
+- 5,000 blocks
+- 10,000 blocks
+Use `go test -bench=.` to see performance.
+---
+## Author
 Created by Danylo Mozhaiev.
 Inspired by Arec1b0, Go learning projects and blockchain principles.
-
+---
+## License
+MIT -- free to use, fork, and improve!
