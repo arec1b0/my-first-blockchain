@@ -1,49 +1,36 @@
-# Simple Blockchain in Go
-A lightweight and educational blockchain written in Go, featuring:
-- Block structure with binary-safe serialization
-- Proof-of-Work mining mechanism
-- SHA-256 hashing using `[]byte` for collision safety
-- Advanced unit tests for hash uniqueness
-- Chain validation with caching (O(n) performance)
-- Benchmark tests for large chains
----
-## Getting Started
-Clone the repo and run:
+Simple Blockchain in Go
+[Overview] Overview
+This is a lightweight and educational blockchain written in Go. It includes features such as:
+* - Block structure Block structure with binary-safe serialization
+* - Proof-of-Work Proof-of-Work mining mechanism
+* - SHA-256 hashing SHA-256 hashing using byte slices
+* [Tests] Adversarial unit tests for hash uniqueness
+* - Cached validation Cached validation for O(n) performance
+* - Benchmarks Performance benchmarks for large blockchains
+[Getting Started] Getting Started
+Run the project using:
 go run main.go
-To run tests:
+Run tests with:
 go test
-To benchmark chain validation:
+Benchmark performance with:
 go test -bench=.
----
-## Structure
-### Block
-Each block stores:
-- `Index`, `Timestamp`
-- `Data` as `[]byte`
-- `PrevHash` and `Hash` as `[]byte`
-- `Nonce` (for Proof-of-Work)
-### Proof-of-Work
-format).
-Implemented via `proofOfWork()` with difficulty level (`n` leading zeroes in hex
-### Chain Validation
-- `isChainValidCached()` validates the blockchain using cached hashes to avoid redundant
-computation.
----
-## Test Coverage
-- `main_test.go` includes adversarial hash collision cases.
-- Verifies that different field combinations do not produce same hashes.
----
-## Benchmarks
-Tested on chains with:
-- 100 blocks
-- 1,000 blocks
-- 5,000 blocks
-- 10,000 blocks
-Use `go test -bench=.` to see performance.
----
-## Author
+[Block Structure] Block Structure
+* `Index`, `Timestamp`
+* `Data` as `[]byte`
+* `PrevHash` and `Hash` as `[]byte`
+* `Nonce` for Proof-of-Work
+The blockchain uses `[]byte` for all hash-related fields and data to ensure binary safety.
+[Validation] Chain Validation
+The function `isChainValidCached()` ensures the chain is valid by caching hashes of each block.
+ok := isChainValidCached(chain)
+[Tests] Tests & Collision Checks
+The `main_test.go` file includes collision test cases to detect possible hash duplications.
+Each test case validates different edge conditions such as prefix collisions, length variations, and character encodings.
+[Benchmarks] Benchmarks
+Validation tested on blockchains of 100, 1,000, 5,000 and 10,000 blocks.
+go test -bench=.
+[Author] Author
 Created by Danylo Mozhaiev.
-Inspired by Arec1b0, Go learning projects and blockchain principles.
----
-## License
-MIT -- free to use, fork, and improve!
+Inspired by [Arec1b0] (https://gist.github.com/arec1b0), Go learning projects and blockchain principles.
+[License] License
+MIT - free to use, fork, and improve!
