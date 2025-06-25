@@ -3,27 +3,28 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
-// Helper to clone a block (for mutation)
+// cloneBlock returns a deep copy of the given block for test mutation
 func cloneBlock(b Block) Block {
 	return Block{
 		Index:     b.Index,
 		Timestamp: b.Timestamp,
-		Data:      b.Data,
-		PrevHash:  b.PrevHash,
+		Data:      append([]byte{}, b.Data...),
+		PrevHash:  append([]byte{}, b.PrevHash...),
 		Nonce:     b.Nonce,
 	}
 }
 
+// TestCalculateHash_AdversarialCollisions checks if different block contents produce unique hashes
 func TestCalculateHash_AdversarialCollisions(t *testing.T) {
-	// Baseline block for all tests
 	base := Block{
 		Index:     5,
 		Timestamp: 1111222233,
-		Data:      "foo|bar||baz",
-		PrevHash:  "feedcafe",
+		Data:      []byte("foo|bar||baz"),
+		PrevHash:  []byte("feedcafe"),
 		Nonce:     1337,
 	}
 	calculateHash(&base)
@@ -32,14 +33,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		name string
 		a, b Block
 	}{
-		// Same field values, different field order not possible in strongly typed Go,
-		// but try same field content with field delimiters embedded
 		{
 			"Delimiter Injection: Data contains PrevHash as prefix",
 			base,
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = base.PrevHash + base.Data
+				blk.Data = append(base.PrevHash, base.Data...)
 				return blk
 			}(),
 		},
@@ -48,8 +47,8 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			base,
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "foo\x00bar"
-				blk.PrevHash = "baz\x00qux"
+				blk.Data = []byte("foo\x00bar")
+				blk.PrevHash = []byte("baz\x00qux")
 				return blk
 			}(),
 		},
@@ -57,14 +56,14 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			"Length Prefix Edge: Data and PrevHash same bytes, different length prefix",
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "AA"
-				blk.PrevHash = "A"
+				blk.Data = []byte("AA")
+				blk.PrevHash = []byte("A")
 				return blk
 			}(),
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "A"
-				blk.PrevHash = "AA"
+				blk.Data = []byte("A")
+				blk.PrevHash = []byte("AA")
 				return blk
 			}(),
 		},
@@ -72,12 +71,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			"Leading Zeros in Data: Data with and without leading zeros",
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "\x00\x00foobar"
+				blk.Data = []byte("\x00\x00foobar")
 				return blk
 			}(),
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "foobar"
+				blk.Data = []byte("foobar")
 				return blk
 			}(),
 		},
@@ -85,27 +84,27 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			"Unicode vs. ASCII: visually similar but different bytes",
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "é" // U+0065 U+0301
+				blk.Data = []byte("é") // U+0065 U+0301
 				return blk
 			}(),
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "\u00e9" // U+00E9
+				blk.Data = []byte("\u00e9") // U+00E9
 				return blk
 			}(),
 		},
 		{
-			"All Fields Zero vs. Empty",
+			"All Fields Zero vs. Explicit Empty",
 			func() Block {
 				return Block{}
 			}(),
 			func() Block {
 				return Block{
-					Index:              0,
-					Timestamp:          0,
-					Data:              "",
-					PrevHash:          "",
-					Nonce:             0,
+					Index:                 0,
+					Timestamp:             0,
+					Data:                  []byte{},
+					PrevHash:              []byte{},
+					Nonce:                 0,
 					explicitlyInitialized: true,
 				}
 			}(),
@@ -114,12 +113,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			"Identical After Stripping Non-printables",
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "foo\nbar"
+				blk.Data = []byte("foo\nbar")
 				return blk
 			}(),
 			func() Block {
 				blk := cloneBlock(base)
-				blk.Data = "foo\rbar"
+				blk.Data = []byte("foo\rbar")
 				return blk
 			}(),
 		},
@@ -146,15 +145,57 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 	for _, tc := range cases {
 		hashA := calculateHash(&tc.a)
 		hashB := calculateHash(&tc.b)
-		if hashA == hashB {
+		if bytes.Equal(hashA, hashB) {
 			var buf bytes.Buffer
 			buf.WriteString("Hash collision detected for case '" + tc.name + "':\n")
-			buf.WriteString("Block A: %+v\n")
-			buf.WriteString("Block B: %+v\n")
-			buf.WriteString("Hash: " + hashA + "\n")
-			buf.WriteString("BlockA bytes: " + hex.EncodeToString([]byte(tc.a.Data)) + "\n")
-			buf.WriteString("BlockB bytes: " + hex.EncodeToString([]byte(tc.b.Data)) + "\n")
+			buf.WriteString(fmt.Sprintf("Block A: %+v\n", tc.a))
+			buf.WriteString(fmt.Sprintf("Block B: %+v\n", tc.b))
+			buf.WriteString("Hash: " + hex.EncodeToString(hashA) + "\n")
+			buf.WriteString("BlockA bytes: " + hex.EncodeToString(tc.a.Data) + "\n")
+			buf.WriteString("BlockB bytes: " + hex.EncodeToString(tc.b.Data) + "\n")
 			t.Error(buf.String())
 		}
+	}
+}
+
+// makeBlockchain creates a sample blockchain of the given size
+func makeBlockchain(size int) []*Block {
+	genesis := &Block{
+		Index:     0,
+		Timestamp: 0,
+		Data:      []byte("Genesis"),
+		PrevHash:  []byte{},
+	}
+	genesis.Hash = calculateHash(genesis)
+
+	chain := []*Block{genesis}
+	for i := 1; i < size; i++ {
+		block := &Block{
+			Index:     i,
+			Timestamp: int64(i),
+			Data:      []byte(fmt.Sprintf("Block %d", i)),
+			PrevHash:  chain[i-1].Hash,
+		}
+		block.Hash = calculateHash(block)
+		chain = append(chain, block)
+	}
+	return chain
+}
+
+// BenchmarkChainValidation measures performance of isChainValidCached
+func BenchmarkChainValidation(b *testing.B) {
+	sizes := []int{100, 1000, 5000, 10000}
+
+	for _, size := range sizes {
+		chain := makeBlockchain(size)
+		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ok := isChainValidCached(chain)
+				if !ok {
+					b.Fatal("Chain is invalid, check your logic!")
+				}
+			}
+		})
 	}
 }
