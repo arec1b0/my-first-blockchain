@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -197,5 +199,34 @@ func BenchmarkChainValidation(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// TestWriteChainJSON checks that a chain can be written to a JSON file.
+func TestWriteChainJSON(t *testing.T) {
+	chain := makeBlockchain(3)
+	tmp, err := os.CreateTemp("", "chain*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := tmp.Name()
+	tmp.Close()
+	defer os.Remove(path)
+
+	if err := writeChainJSON(chain, path); err != nil {
+		t.Fatalf("writeChainJSON failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded []*Block
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+	if len(decoded) != len(chain) {
+		t.Fatalf("expected %d blocks, got %d", len(chain), len(decoded))
 	}
 }
