@@ -21,6 +21,14 @@ A lightweight and educational blockchain written in Go.
 go run main.go
 ```
 
+### Command-line options
+
+You can control the number of generated blocks and PoW difficulty:
+
+```bash
+go run main.go -blocks 5 -difficulty 3 -output chain.json
+```
+
 ### Run the tests:
 
 ```bash
@@ -70,9 +78,14 @@ Run:
 go test -bench=.
 ```
 
+## 🔄 Request Flow
+
+See [docs/request_flow.md](docs/request_flow.md) for a diagram of how the CLI
+interacts with the in-memory blockchain.
+
 ## 👤 Author
 Created by Danylo Mozhaiev.
-Inspired by [Arec1b0](https://gist.github.com/arec1b0), 
+Inspired by [Arec1b0](https://gist.github.com/arec1b0),
 Go learning projects and blockchain principles.
 
 ## 📜 License
