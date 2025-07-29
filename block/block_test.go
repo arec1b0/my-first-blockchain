@@ -1,4 +1,4 @@
-package main
+package block_test
 
 import (
 	"bytes"
@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	block "my-first-blockchain/block"
+	bc "my-first-blockchain/blockchain"
 )
 
 // cloneBlock returns a deep copy of the given block for test mutation
-func cloneBlock(b Block) Block {
-	return Block{
+func cloneBlock(b block.Block) block.Block {
+	return block.Block{
 		Index:     b.Index,
 		Timestamp: b.Timestamp,
 		Data:      append([]byte{}, b.Data...),
@@ -22,23 +25,23 @@ func cloneBlock(b Block) Block {
 
 // TestCalculateHash_AdversarialCollisions checks if different block contents produce unique hashes
 func TestCalculateHash_AdversarialCollisions(t *testing.T) {
-	base := Block{
+	base := block.Block{
 		Index:     5,
 		Timestamp: 1111222233,
 		Data:      []byte("foo|bar||baz"),
 		PrevHash:  []byte("feedcafe"),
 		Nonce:     1337,
 	}
-	calculateHash(&base)
+	block.CalculateHash(&base)
 
 	cases := []struct {
 		name string
-		a, b Block
+		a, b block.Block
 	}{
 		{
 			"Delimiter Injection: Data contains PrevHash as prefix",
 			base,
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = append(base.PrevHash, base.Data...)
 				return blk
@@ -47,7 +50,7 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		{
 			"Delimiter Injection: Data and PrevHash with null bytes",
 			base,
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("foo\x00bar")
 				blk.PrevHash = []byte("baz\x00qux")
@@ -56,13 +59,13 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"Length Prefix Edge: Data and PrevHash same bytes, different length prefix",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("AA")
 				blk.PrevHash = []byte("A")
 				return blk
 			}(),
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("A")
 				blk.PrevHash = []byte("AA")
@@ -71,12 +74,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"Leading Zeros in Data: Data with and without leading zeros",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("\x00\x00foobar")
 				return blk
 			}(),
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("foobar")
 				return blk
@@ -84,12 +87,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"Unicode vs. ASCII: visually similar but different bytes",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("é") // U+0065 U+0301
 				return blk
 			}(),
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("\u00e9") // U+00E9
 				return blk
@@ -97,28 +100,22 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"All Fields Zero vs. Explicit Empty",
-			func() Block {
-				return Block{}
+			func() block.Block {
+				return block.Block{}
 			}(),
-			func() Block {
-				return Block{
-					Index:                 0,
-					Timestamp:             0,
-					Data:                  []byte{},
-					PrevHash:              []byte{},
-					Nonce:                 0,
-					explicitlyInitialized: true,
-				}
+			func() block.Block {
+				blk := block.NewExplicitBlock()
+				return blk
 			}(),
 		},
 		{
 			"Identical After Stripping Non-printables",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("foo\nbar")
 				return blk
 			}(),
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data = []byte("foo\rbar")
 				return blk
@@ -126,7 +123,7 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"Data and PrevHash swapped, same combined bytes",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Data, blk.PrevHash = base.PrevHash, base.Data
 				return blk
@@ -135,7 +132,7 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 		},
 		{
 			"Different Index but other fields match",
-			func() Block {
+			func() block.Block {
 				blk := cloneBlock(base)
 				blk.Index++
 				return blk
@@ -145,8 +142,8 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		hashA := calculateHash(&tc.a)
-		hashB := calculateHash(&tc.b)
+		hashA := block.CalculateHash(&tc.a)
+		hashB := block.CalculateHash(&tc.b)
 		if bytes.Equal(hashA, hashB) {
 			var buf bytes.Buffer
 			buf.WriteString("Hash collision detected for case '" + tc.name + "':\n")
@@ -161,30 +158,30 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 }
 
 // makeBlockchain creates a sample blockchain of the given size
-func makeBlockchain(size int) []*Block {
-	genesis := &Block{
+func makeBlockchain(size int) []*block.Block {
+	genesis := &block.Block{
 		Index:     0,
 		Timestamp: 0,
 		Data:      []byte("Genesis"),
 		PrevHash:  []byte{},
 	}
-	genesis.Hash = calculateHash(genesis)
+	genesis.Hash = block.CalculateHash(genesis)
 
-	chain := []*Block{genesis}
+	chain := []*block.Block{genesis}
 	for i := 1; i < size; i++ {
-		block := &Block{
+		blk := &block.Block{
 			Index:     i,
 			Timestamp: int64(i),
 			Data:      []byte(fmt.Sprintf("Block %d", i)),
 			PrevHash:  chain[i-1].Hash,
 		}
-		block.Hash = calculateHash(block)
-		chain = append(chain, block)
+		blk.Hash = block.CalculateHash(blk)
+		chain = append(chain, blk)
 	}
 	return chain
 }
 
-// BenchmarkChainValidation measures performance of isChainValidCached
+// BenchmarkChainValidation measures performance of bc.IsChainValidCached
 func BenchmarkChainValidation(b *testing.B) {
 	sizes := []int{100, 1000, 5000, 10000}
 
@@ -193,7 +190,7 @@ func BenchmarkChainValidation(b *testing.B) {
 		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				ok := isChainValidCached(chain)
+				ok := bc.IsChainValidCached(chain)
 				if !ok {
 					b.Fatal("Chain is invalid, check your logic!")
 				}
@@ -213,8 +210,8 @@ func TestWriteChainJSON(t *testing.T) {
 	tmp.Close()
 	defer os.Remove(path)
 
-	if err := writeChainJSON(chain, path); err != nil {
-		t.Fatalf("writeChainJSON failed: %v", err)
+	if err := bc.WriteChainJSON(chain, path); err != nil {
+		t.Fatalf("bc.WriteChainJSON failed: %v", err)
 	}
 
 	data, err := os.ReadFile(path)
@@ -222,7 +219,7 @@ func TestWriteChainJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var decoded []*Block
+	var decoded []*block.Block
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("invalid JSON output: %v", err)
 	}
