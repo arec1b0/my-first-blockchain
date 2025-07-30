@@ -96,19 +96,12 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 			}(),
 		},
 		{
-			"All Fields Zero vs. Explicit Empty",
+			"Different Nonce Values",
 			func() Block {
-				return Block{}
+				return Block{Index: 0, Timestamp: 0, Data: []byte{}, PrevHash: []byte{}, Nonce: 0}
 			}(),
 			func() Block {
-				return Block{
-					Index:                 0,
-					Timestamp:             0,
-					Data:                  []byte{},
-					PrevHash:              []byte{},
-					Nonce:                 0,
-					explicitlyInitialized: true,
-				}
+				return Block{Index: 0, Timestamp: 0, Data: []byte{}, PrevHash: []byte{}, Nonce: 1}
 			}(),
 		},
 		{

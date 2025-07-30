@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 )
@@ -9,8 +10,9 @@ import (
 // BenchmarkStressGenerateBlockDifficulty4 measures PoW generation with higher difficulty.
 func BenchmarkStressGenerateBlockDifficulty4(b *testing.B) {
 	prev := &Block{Hash: []byte("prev")}
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
-		_ = generateBlock(prev, fmt.Sprintf("data-%d", i), 4)
+		_, _ = generateBlock(ctx, prev, fmt.Sprintf("data-%d", i), 4)
 	}
 }
 
@@ -18,8 +20,9 @@ func BenchmarkStressGenerateBlockDifficulty4(b *testing.B) {
 func BenchmarkStressGenerateBlockLargeData(b *testing.B) {
 	prev := &Block{Hash: []byte("prev")}
 	data := bytes.Repeat([]byte("a"), 1<<20) // 1 MB
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
-		_ = generateBlock(prev, string(data), 1)
+		_, _ = generateBlock(ctx, prev, string(data), 1)
 	}
 }
 
@@ -61,9 +64,10 @@ func BenchmarkStressValidateLargeChain(b *testing.B) {
 // BenchmarkStressValidateLargeChainConcurrent tests concurrent validation
 func BenchmarkStressValidateLargeChainConcurrent(b *testing.B) {
 	chain := makeBlockchain(20000)
+	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if !isChainValidConcurrent(chain) {
+		if !isChainValidConcurrent(ctx, chain) {
 			b.Fatal("invalid chain")
 		}
 	}
@@ -72,8 +76,9 @@ func BenchmarkStressValidateLargeChainConcurrent(b *testing.B) {
 // BenchmarkStressGenerateBlockDifficulty2 measures PoW generation with lower difficulty.
 func BenchmarkStressGenerateBlockDifficulty2(b *testing.B) {
 	prev := &Block{Hash: []byte("prev")}
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
-		_ = generateBlock(prev, fmt.Sprintf("data-%d", i), 2)
+		_, _ = generateBlock(ctx, prev, fmt.Sprintf("data-%d", i), 2)
 	}
 }
 
