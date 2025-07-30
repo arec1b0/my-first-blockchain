@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -28,8 +30,60 @@ type Block struct {
 	PrevHash  []byte `json:"prev_hash"`
 	Hash      []byte `json:"hash"`
 	Nonce     int    `json:"nonce"`
+}
 
-	explicitlyInitialized bool `json:"-"`
+// ValidationResult represents the result of block validation
+type ValidationResult struct {
+	Index int
+	Valid bool
+	Error error
+}
+
+// HashCache provides thread-safe hash caching
+type HashCache struct {
+	mu    sync.RWMutex
+	cache map[int][]byte
+}
+
+// NewHashCache creates a new thread-safe hash cache
+func NewHashCache(capacity int) *HashCache {
+	return &HashCache{
+		cache: make(map[int][]byte, capacity),
+	}
+}
+
+// Get retrieves a hash from cache
+func (hc *HashCache) Get(index int) ([]byte, bool) {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	hash, exists := hc.cache[index]
+	if exists {
+		// Return a copy to prevent modification
+		result := make([]byte, len(hash))
+		copy(result, hash)
+		return result, true
+	}
+	return nil, false
+}
+
+// Set stores a hash in cache
+func (hc *HashCache) Set(index int, hash []byte) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	// Store a copy to prevent external modification
+	hashCopy := make([]byte, len(hash))
+	copy(hashCopy, hash)
+	hc.cache[index] = hashCopy
+}
+
+// serializeBlockHeader serializes the block header without data for efficiency
+func serializeBlockHeader(block *Block, buf *bytes.Buffer) {
+	buf.WriteByte(0x01) // Version marker
+	buf.WriteByte(0x00) // Reserved for future use
+	
+	binary.Write(buf, binary.LittleEndian, int64(block.Index))
+	binary.Write(buf, binary.LittleEndian, int64(block.Timestamp))
+	binary.Write(buf, binary.LittleEndian, int64(block.Nonce))
 }
 
 // serializeBlock converts a block into a deterministic byte slice.
@@ -41,21 +95,12 @@ func serializeBlock(block *Block) []byte {
 	defer bufferPool.Put(buf)
 
 	// Pre-allocate buffer capacity to avoid reallocations
-	estimatedSize := 1 + 1 + 8 + 8 + 8 + 4 + len(block.Data) + 4 + len(block.PrevHash)
+	estimatedSize := 32 + len(block.Data) + len(block.PrevHash) // Conservative estimate
 	if buf.Cap() < estimatedSize {
 		buf.Grow(estimatedSize - buf.Len())
 	}
 
-	buf.WriteByte(0x01)
-	if block.explicitlyInitialized {
-		buf.WriteByte(0xFF)
-	} else {
-		buf.WriteByte(0x00)
-	}
-
-	binary.Write(buf, binary.LittleEndian, int64(block.Index))
-	binary.Write(buf, binary.LittleEndian, int64(block.Timestamp))
-	binary.Write(buf, binary.LittleEndian, int64(block.Nonce))
+	serializeBlockHeader(block, buf)
 
 	binary.Write(buf, binary.LittleEndian, int32(len(block.Data)))
 	buf.Write(block.Data)
@@ -75,12 +120,7 @@ func calculateHashStreaming(block *Block) []byte {
 	hasher := sha256.New()
 	
 	// Write header data directly to hasher
-	hasher.Write([]byte{0x01})
-	if block.explicitlyInitialized {
-		hasher.Write([]byte{0xFF})
-	} else {
-		hasher.Write([]byte{0x00})
-	}
+	hasher.Write([]byte{0x01, 0x00}) // Version and reserved byte
 	
 	// Write fixed-size fields
 	var tmpBuf [8]byte
@@ -118,56 +158,105 @@ func calculateHash(block *Block) []byte {
 	return hash[:]
 }
 
+// validateDifficulty checks if a hash meets the difficulty requirement
+func validateDifficulty(hash []byte, difficulty int) bool {
+	// Check whole bytes first (more efficient)
+	wholeBytes := difficulty / 2
+	for i := 0; i < wholeBytes; i++ {
+		if hash[i] != 0 {
+			return false
+		}
+	}
+	
+	// Check remaining nibble if odd difficulty
+	if difficulty%2 == 1 && wholeBytes < len(hash) {
+		return hash[wholeBytes] < 0x10
+	}
+	
+	return true
+}
+
 // proofOfWork finds a valid hash that satisfies the difficulty constraint.
 // It returns the discovered hash and the nonce used to generate it.
-// Optimized version with reduced string operations and early termination.
-func proofOfWork(block *Block, difficulty int) ([]byte, int) {
-	// Pre-calculate target for comparison instead of string operations
-	target := make([]byte, (difficulty+1)/2)
-	if difficulty%2 == 1 {
-		target[difficulty/2] = 0xF0
+// Supports cancellation via context.
+func proofOfWork(ctx context.Context, block *Block, difficulty int) ([]byte, int, error) {
+	if difficulty < 0 || difficulty > 64 {
+		return nil, 0, errors.New("invalid difficulty level")
 	}
 	
 	nonce := 0
 	var hash []byte
 	
+	// Check for cancellation every 1000 iterations to avoid overhead
+	const checkInterval = 1000
+	
 	for {
+		// Check for cancellation periodically
+		if nonce%checkInterval == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, 0, ctx.Err()
+			default:
+			}
+		}
+		
 		block.Nonce = nonce
 		hash = calculateHash(block)
 		
-		// Compare bytes directly instead of hex string conversion
-		valid := true
-		for i := 0; i < difficulty/2; i++ {
-			if hash[i] != 0 {
-				valid = false
-				break
-			}
-		}
-		if valid && difficulty%2 == 1 && hash[difficulty/2] >= 0x10 {
-			valid = false
-		}
-		
-		if valid {
-			break
+		if validateDifficulty(hash, difficulty) {
+			return hash, nonce, nil
 		}
 		nonce++
 	}
-	return hash, nonce
 }
 
 // generateBlock creates a new block referencing the previous one
 // and performs proof-of-work to finalize its hash.
-func generateBlock(prevBlock *Block, data string, difficulty int) *Block {
+func generateBlock(ctx context.Context, prevBlock *Block, data string, difficulty int) (*Block, error) {
 	newBlock := &Block{
 		Index:     prevBlock.Index + 1,
 		Timestamp: time.Now().Unix(),
 		Data:      []byte(data),
 		PrevHash:  prevBlock.Hash,
 	}
-	hash, nonce := proofOfWork(newBlock, difficulty)
+	
+	hash, nonce, err := proofOfWork(ctx, newBlock, difficulty)
+	if err != nil {
+		return nil, fmt.Errorf("proof of work failed: %w", err)
+	}
+	
 	newBlock.Hash = hash
 	newBlock.Nonce = nonce
-	return newBlock
+	return newBlock, nil
+}
+
+// validateBlockPair validates a single block against its predecessor
+func validateBlockPair(prevBlock, currBlock *Block, hashCache *HashCache) error {
+	// Get or compute previous block hash
+	prevHash, ok := hashCache.Get(prevBlock.Index)
+	if !ok {
+		prevHash = calculateHash(prevBlock)
+		hashCache.Set(prevBlock.Index, prevHash)
+	}
+
+	// Check previous hash link
+	if !bytes.Equal(currBlock.PrevHash, prevHash) {
+		return fmt.Errorf("block %d: invalid previous hash", currBlock.Index)
+	}
+
+	// Get or compute current block hash
+	currHash, ok := hashCache.Get(currBlock.Index)
+	if !ok {
+		currHash = calculateHash(currBlock)
+		hashCache.Set(currBlock.Index, currHash)
+	}
+
+	// Check current hash
+	if !bytes.Equal(currBlock.Hash, currHash) {
+		return fmt.Errorf("block %d: invalid hash", currBlock.Index)
+	}
+
+	return nil
 }
 
 // isChainValidCached validates a chain by caching intermediate hashes
@@ -178,99 +267,109 @@ func isChainValidCached(chain []*Block) bool {
 		return true
 	}
 	
-	// Pre-allocate cache with expected capacity
-	hashCache := make(map[int][]byte, len(chain))
+	hashCache := NewHashCache(len(chain))
 	
 	for i := 1; i < len(chain); i++ {
-		prevBlock := chain[i-1]
-		currBlock := chain[i]
-
-		// Get or compute previous block hash
-		prevHash, ok := hashCache[prevBlock.Index]
-		if !ok {
-			prevHash = calculateHash(prevBlock)
-			hashCache[prevBlock.Index] = prevHash
-		}
-
-		// Early exit if previous hash doesn't match
-		if !bytes.Equal(currBlock.PrevHash, prevHash) {
-			return false
-		}
-
-		// Get or compute current block hash
-		currHash, ok := hashCache[currBlock.Index]
-		if !ok {
-			currHash = calculateHash(currBlock)
-			hashCache[currBlock.Index] = currHash
-		}
-
-		// Early exit if current hash doesn't match
-		if !bytes.Equal(currBlock.Hash, currHash) {
+		if err := validateBlockPair(chain[i-1], chain[i], hashCache); err != nil {
 			return false
 		}
 	}
 	return true
 }
 
-// isChainValidConcurrent validates a chain using concurrent processing
-// for better performance on large chains
-func isChainValidConcurrent(chain []*Block) bool {
+// validateChainConcurrent validates blocks concurrently with proper error handling
+func validateChainConcurrent(ctx context.Context, chain []*Block, maxWorkers int) error {
 	if len(chain) == 0 {
-		return true
+		return nil
 	}
 	
+	if len(chain) < maxWorkers {
+		maxWorkers = len(chain) - 1
+	}
+	
+	if maxWorkers <= 0 {
+		return nil
+	}
+	
+	// Channel for validation jobs and results
+	jobs := make(chan int, len(chain)-1)
+	results := make(chan ValidationResult, len(chain)-1)
+	
+	hashCache := NewHashCache(len(chain))
+	
+	// Worker function
+	worker := func() {
+		for i := range jobs {
+			select {
+			case <-ctx.Done():
+				results <- ValidationResult{Index: i, Valid: false, Error: ctx.Err()}
+				return
+			default:
+			}
+			
+			err := validateBlockPair(chain[i-1], chain[i], hashCache)
+			results <- ValidationResult{
+				Index: i,
+				Valid: err == nil,
+				Error: err,
+			}
+		}
+	}
+	
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			worker()
+		}()
+	}
+	
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for i := 1; i < len(chain); i++ {
+			select {
+			case jobs <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	
+	// Wait for workers to finish
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	
+	// Collect results
+	for i := 1; i < len(chain); i++ {
+		select {
+		case result := <-results:
+			if !result.Valid {
+				return result.Error
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	
+	return nil
+}
+
+// isChainValidConcurrent validates a chain using concurrent processing
+// for better performance on large chains
+func isChainValidConcurrent(ctx context.Context, chain []*Block) bool {
 	// Use concurrent validation for large chains
 	if len(chain) < 1000 {
 		return isChainValidCached(chain)
 	}
 	
-	// Channel for validation results
-	type validationResult struct {
-		index int
-		valid bool
-		err   error
-	}
-	
 	const maxWorkers = 4
-	workers := maxWorkers
-	if len(chain) < workers {
-		workers = len(chain)
-	}
-	
-	results := make(chan validationResult, len(chain)-1)
-	hashCache := make(map[int][]byte, len(chain))
-	
-	// Pre-compute first block hash
-	hashCache[0] = calculateHash(chain[0])
-	
-	// Worker function
-	validateBlock := func(i int) {
-		prevBlock := chain[i-1]
-		currBlock := chain[i]
-		
-		prevHash := calculateHash(prevBlock)
-		currHash := calculateHash(currBlock)
-		
-		valid := bytes.Equal(currBlock.PrevHash, prevHash) && 
-				bytes.Equal(currBlock.Hash, currHash)
-		
-		results <- validationResult{index: i, valid: valid}
-	}
-	
-	// Launch workers
-	for i := 1; i < len(chain); i++ {
-		go validateBlock(i)
-	}
-	
-	// Collect results
-	for i := 1; i < len(chain); i++ {
-		result := <-results
-		if !result.valid {
-			return false
-		}
-	}
-	
-	return true
+	err := validateChainConcurrent(ctx, chain, maxWorkers)
+	return err == nil
 }
 
 // writeChainJSON saves the blockchain to a JSON file.
@@ -304,15 +403,38 @@ func main() {
 	difficulty := flag.Int("difficulty", 4, "proof-of-work difficulty")
 	output := flag.String("output", "", "optional path to write blockchain as JSON")
 	concurrent := flag.Bool("concurrent", false, "use concurrent validation for large chains")
+	timeout := flag.Duration("timeout", 30*time.Minute, "timeout for long-running operations")
 	flag.Parse()
+
+	// Validate input parameters
+	if *blocks < 0 {
+		fmt.Printf("Error: blocks must be non-negative\n")
+		os.Exit(1)
+	}
+	if *difficulty < 0 || *difficulty > 32 {
+		fmt.Printf("Error: difficulty must be between 0 and 32\n")
+		os.Exit(1)
+	}
 
 	blockchain := []*Block{newGenesisBlock()}
 
-	fmt.Printf("Generating %d blocks with difficulty %d...\n", *blocks, *difficulty)
+	fmt.Printf("Generating %d blocks with difficulty %d (timeout: %v)...\n", *blocks, *difficulty, *timeout)
 	start := time.Now()
 	
+	// Create context with timeout for cancellation
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	
 	for i := 1; i <= *blocks; i++ {
-		block := generateBlock(blockchain[len(blockchain)-1], fmt.Sprintf("Block %d", i), *difficulty)
+		block, err := generateBlock(ctx, blockchain[len(blockchain)-1], fmt.Sprintf("Block %d", i), *difficulty)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Printf("Timeout exceeded while generating block %d\n", i)
+			} else {
+				fmt.Printf("Error generating block %d: %v\n", i, err)
+			}
+			os.Exit(1)
+		}
 		blockchain = append(blockchain, block)
 		if i%100 == 0 || i == *blocks {
 			fmt.Printf("Generated %d/%d blocks\n", i, *blocks)
@@ -320,11 +442,27 @@ func main() {
 	}
 	
 	generationTime := time.Since(start)
-	fmt.Printf("Generation completed in %v\n", generationTime)
+	fmt.Printf("Generation completed in %v (avg: %v per block)\n", 
+		generationTime, generationTime/time.Duration(*blocks))
 
 	fmt.Println("\nBlockchain:")
-	for _, block := range blockchain {
-		fmt.Printf("Index: %d, Data: %s, Hash: %s\n", block.Index, string(block.Data), fmt.Sprintf("%x", block.Hash)[:10]+"...")
+	displayLimit := 10
+	if len(blockchain) > displayLimit {
+		fmt.Printf("Showing first %d and last %d blocks:\n", displayLimit/2, displayLimit/2)
+		for _, block := range blockchain[:displayLimit/2] {
+			fmt.Printf("Index: %d, Data: %s, Hash: %s\n", 
+				block.Index, string(block.Data), fmt.Sprintf("%x", block.Hash)[:10]+"...")
+		}
+		fmt.Printf("... (%d blocks omitted) ...\n", len(blockchain)-displayLimit)
+		for _, block := range blockchain[len(blockchain)-displayLimit/2:] {
+			fmt.Printf("Index: %d, Data: %s, Hash: %s\n", 
+				block.Index, string(block.Data), fmt.Sprintf("%x", block.Hash)[:10]+"...")
+		}
+	} else {
+		for _, block := range blockchain {
+			fmt.Printf("Index: %d, Data: %s, Hash: %s\n", 
+				block.Index, string(block.Data), fmt.Sprintf("%x", block.Hash)[:10]+"...")
+		}
 	}
 
 	// Validate using appropriate method
@@ -332,8 +470,12 @@ func main() {
 	validationStart := time.Now()
 	var isValid bool
 	
+	// Create new context for validation (separate from generation timeout)
+	validationCtx, validationCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer validationCancel()
+	
 	if *concurrent && len(blockchain) >= 1000 {
-		isValid = isChainValidConcurrent(blockchain)
+		isValid = isChainValidConcurrent(validationCtx, blockchain)
 		fmt.Printf(" (using concurrent validation)")
 	} else {
 		isValid = isChainValidCached(blockchain)
@@ -346,8 +488,16 @@ func main() {
 	if *output != "" {
 		if err := writeChainJSON(blockchain, *output); err != nil {
 			fmt.Printf("Error writing JSON: %v\n", err)
+			os.Exit(1)
 		} else {
 			fmt.Printf("Blockchain written to %s\n", *output)
 		}
 	}
+
+	// Performance summary
+	fmt.Printf("\nPerformance Summary:\n")
+	fmt.Printf("- Total blocks: %d\n", len(blockchain))
+	fmt.Printf("- Average generation time: %v/block\n", generationTime/time.Duration(*blocks))
+	fmt.Printf("- Validation time: %v\n", validationTime)
+	fmt.Printf("- Total runtime: %v\n", time.Since(start))
 }
