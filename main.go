@@ -231,7 +231,7 @@ func generateBlock(ctx context.Context, prevBlock *Block, data string, difficult
 }
 
 // validateBlockPair validates a single block against its predecessor
-func validateBlockPair(prevBlock, currBlock *Block, hashCache *HashCache) error {
+func validateBlockPair(prevBlock, currBlock *Block, difficulty int, hashCache *HashCache) error {
 	// Get or compute previous block hash
 	prevHash, ok := hashCache.Get(prevBlock.Index)
 	if !ok {
@@ -256,13 +256,18 @@ func validateBlockPair(prevBlock, currBlock *Block, hashCache *HashCache) error 
 		return fmt.Errorf("block %d: invalid hash", currBlock.Index)
 	}
 
+	// Check proof-of-work difficulty
+	if !validateDifficulty(currHash, difficulty) {
+		return fmt.Errorf("block %d: hash does not meet difficulty %d", currBlock.Index, difficulty)
+	}
+
 	return nil
 }
 
 // isChainValidCached validates a chain by caching intermediate hashes
 // to avoid redundant hash computations.
 // Optimized version with better memory management and early exits.
-func isChainValidCached(chain []*Block) bool {
+func isChainValidCached(chain []*Block, difficulty int) bool {
 	if len(chain) == 0 {
 		return true
 	}
@@ -270,7 +275,7 @@ func isChainValidCached(chain []*Block) bool {
 	hashCache := NewHashCache(len(chain))
 	
 	for i := 1; i < len(chain); i++ {
-		if err := validateBlockPair(chain[i-1], chain[i], hashCache); err != nil {
+		if err := validateBlockPair(chain[i-1], chain[i], difficulty, hashCache); err != nil {
 			return false
 		}
 	}
@@ -278,7 +283,7 @@ func isChainValidCached(chain []*Block) bool {
 }
 
 // validateChainConcurrent validates blocks concurrently with proper error handling
-func validateChainConcurrent(ctx context.Context, chain []*Block, maxWorkers int) error {
+func validateChainConcurrent(ctx context.Context, chain []*Block, difficulty int, maxWorkers int) error {
 	if len(chain) == 0 {
 		return nil
 	}
@@ -307,7 +312,7 @@ func validateChainConcurrent(ctx context.Context, chain []*Block, maxWorkers int
 			default:
 			}
 			
-			err := validateBlockPair(chain[i-1], chain[i], hashCache)
+			err := validateBlockPair(chain[i-1], chain[i], difficulty, hashCache)
 			results <- ValidationResult{
 				Index: i,
 				Valid: err == nil,
@@ -361,14 +366,14 @@ func validateChainConcurrent(ctx context.Context, chain []*Block, maxWorkers int
 
 // isChainValidConcurrent validates a chain using concurrent processing
 // for better performance on large chains
-func isChainValidConcurrent(ctx context.Context, chain []*Block) bool {
+func isChainValidConcurrent(ctx context.Context, chain []*Block, difficulty int) bool {
 	// Use concurrent validation for large chains
 	if len(chain) < 1000 {
-		return isChainValidCached(chain)
+		return isChainValidCached(chain, difficulty)
 	}
 	
 	const maxWorkers = 4
-	err := validateChainConcurrent(ctx, chain, maxWorkers)
+	err := validateChainConcurrent(ctx, chain, difficulty, maxWorkers)
 	return err == nil
 }
 
@@ -475,10 +480,10 @@ func main() {
 	defer validationCancel()
 	
 	if *concurrent && len(blockchain) >= 1000 {
-		isValid = isChainValidConcurrent(validationCtx, blockchain)
+		isValid = isChainValidConcurrent(validationCtx, blockchain, *difficulty)
 		fmt.Printf(" (using concurrent validation)")
 	} else {
-		isValid = isChainValidCached(blockchain)
+		isValid = isChainValidCached(blockchain, *difficulty)
 		fmt.Printf(" (using cached validation)")
 	}
 	

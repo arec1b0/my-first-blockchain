@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 // cloneBlock returns a deep copy of the given block for test mutation
@@ -153,25 +155,26 @@ func TestCalculateHash_AdversarialCollisions(t *testing.T) {
 	}
 }
 
-// makeBlockchain creates a sample blockchain of the given size
-func makeBlockchain(size int) []*Block {
+// makeBlockchain creates a sample blockchain of the given size with a specified difficulty
+func makeBlockchain(size int, difficulty int) []*Block {
 	genesis := &Block{
 		Index:     0,
 		Timestamp: 0,
 		Data:      []byte("Genesis"),
 		PrevHash:  []byte{},
 	}
+	// Genesis block hash is calculated without PoW in this model
 	genesis.Hash = calculateHash(genesis)
 
 	chain := []*Block{genesis}
+	ctx := context.Background()
+
 	for i := 1; i < size; i++ {
-		block := &Block{
-			Index:     i,
-			Timestamp: int64(i),
-			Data:      []byte(fmt.Sprintf("Block %d", i)),
-			PrevHash:  chain[i-1].Hash,
+		block, err := generateBlock(ctx, chain[i-1], fmt.Sprintf("Block %d", i), difficulty)
+		if err != nil {
+			// Tests should fail hard if block generation fails
+			panic(fmt.Sprintf("test blockchain generation failed: %v", err))
 		}
-		block.Hash = calculateHash(block)
 		chain = append(chain, block)
 	}
 	return chain
@@ -180,13 +183,14 @@ func makeBlockchain(size int) []*Block {
 // BenchmarkChainValidation measures performance of isChainValidCached
 func BenchmarkChainValidation(b *testing.B) {
 	sizes := []int{100, 1000, 5000, 10000}
+	const difficulty = 1 // Use a low, constant difficulty for benchmarks
 
 	for _, size := range sizes {
-		chain := makeBlockchain(size)
+		chain := makeBlockchain(size, difficulty)
 		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				ok := isChainValidCached(chain)
+				ok := isChainValidCached(chain, difficulty)
 				if !ok {
 					b.Fatal("Chain is invalid, check your logic!")
 				}
@@ -197,7 +201,7 @@ func BenchmarkChainValidation(b *testing.B) {
 
 // TestWriteChainJSON checks that a chain can be written to a JSON file.
 func TestWriteChainJSON(t *testing.T) {
-	chain := makeBlockchain(3)
+	chain := makeBlockchain(3, 1) // Use low difficulty for test speed
 	tmp, err := os.CreateTemp("", "chain*.json")
 	if err != nil {
 		t.Fatal(err)
@@ -221,5 +225,35 @@ func TestWriteChainJSON(t *testing.T) {
 	}
 	if len(decoded) != len(chain) {
 		t.Fatalf("expected %d blocks, got %d", len(chain), len(decoded))
+	}
+}
+
+// TestValidateChain_InvalidPoW verifies that a chain with a block not meeting PoW is invalid.
+func TestValidateChain_InvalidPoW(t *testing.T) {
+	const difficulty = 4
+	chain := makeBlockchain(3, difficulty)
+
+	// Tamper with the last block by replacing its hash with one that does not meet the PoW difficulty.
+	// This simulates a fraudulent block.
+	invalidBlock := chain[2]
+	invalidBlock.Nonce = 0 // Reset nonce to find a hash without PoW
+	invalidBlock.Hash = calculateHash(invalidBlock)
+
+	// Ensure our test setup is correct: the new hash should NOT meet the difficulty.
+	if validateDifficulty(invalidBlock.Hash, difficulty) {
+		t.Fatalf("Test setup failed: manually calculated hash unexpectedly met PoW difficulty. Increase difficulty.")
+	}
+	chain[2] = invalidBlock
+
+	// The cached (sequential) validator should fail
+	if isChainValidCached(chain, difficulty) {
+		t.Error("Expected chain to be invalid due to faulty PoW, but isChainValidCached returned true")
+	}
+
+	// The concurrent validator should also fail
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if isChainValidConcurrent(ctx, chain, difficulty) {
+		t.Error("Expected chain to be invalid due to faulty PoW, but isChainValidConcurrent returned true")
 	}
 }

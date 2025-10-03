@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const stressTestDifficulty = 1 // Use a low, constant difficulty for stress tests
+
 // BenchmarkStressGenerateBlockDifficulty4 measures PoW generation with higher difficulty.
 func BenchmarkStressGenerateBlockDifficulty4(b *testing.B) {
 	prev := &Block{Hash: []byte("prev")}
@@ -52,10 +54,10 @@ func BenchmarkStressSerializeLargeBlock(b *testing.B) {
 
 // BenchmarkStressValidateLargeChain validates a large blockchain for each iteration.
 func BenchmarkStressValidateLargeChain(b *testing.B) {
-	chain := makeBlockchain(20000)
+	chain := makeBlockchain(20000, stressTestDifficulty)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if !isChainValidCached(chain) {
+		if !isChainValidCached(chain, stressTestDifficulty) {
 			b.Fatal("invalid chain")
 		}
 	}
@@ -63,11 +65,11 @@ func BenchmarkStressValidateLargeChain(b *testing.B) {
 
 // BenchmarkStressValidateLargeChainConcurrent tests concurrent validation
 func BenchmarkStressValidateLargeChainConcurrent(b *testing.B) {
-	chain := makeBlockchain(20000)
+	chain := makeBlockchain(20000, stressTestDifficulty)
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if !isChainValidConcurrent(ctx, chain) {
+		if !isChainValidConcurrent(ctx, chain, stressTestDifficulty) {
 			b.Fatal("invalid chain")
 		}
 	}
@@ -84,10 +86,10 @@ func BenchmarkStressGenerateBlockDifficulty2(b *testing.B) {
 
 // BenchmarkStressValidateSmallChain tests validation on smaller chains
 func BenchmarkStressValidateSmallChain(b *testing.B) {
-	chain := makeBlockchain(100)
+	chain := makeBlockchain(100, stressTestDifficulty)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if !isChainValidCached(chain) {
+		if !isChainValidCached(chain, stressTestDifficulty) {
 			b.Fatal("invalid chain")
 		}
 	}
